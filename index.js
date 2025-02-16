@@ -85,18 +85,22 @@ async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) 
             owner: repoOwner,
             repo: repoName,
             path: filePath,
-            ref: branch // Fetch from the correct branch
+            ref: branch
         });
-        if (!response.ok) {
-            core.warning(`⚠️ Failed to fetch content: ${response.status} ${response.statusText}`);
+
+        if (!response || !response.data || !response.data.content) {
+            core.warning(`⚠️ Failed to fetch content: No content found for ${filePath}`);
             return '';
         }
-        return Buffer.from(response.data.content, 'base64').toString('utf-8');
+
+        const content = Buffer.from(response.data.content, 'base64').toString('utf-8');
+        return content;
     } catch (error) {
-        core.warning(`⚠️ Error fetching file content: ${error.message}`);
+        core.warning(`⚠️ Error fetching file content for ${filePath}: ${error.message}`);
         return '';
     }
 }
+
 
 // Analyze code for inefficiencies
 function analyzeCode(content, filename) {
