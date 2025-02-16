@@ -34532,7 +34532,7 @@ async function run() {
             if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
                 core.info(`🔍 Analyzing file: ${file.filename}`);
                 
-                const rawUrl = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${pr.head.sha}/${file.filename}`;
+                const rawUrl = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${pr.head.ref}/${file.filename}`;
                 const content = await fetchFileContent(rawUrl);
                 if (!content) {
                     core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
