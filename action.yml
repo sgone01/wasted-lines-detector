@@ -10,6 +10,10 @@ inputs:
     description: "GitHub Token for authentication"
     required: true
 
+outputs:
+  wasted_lines:
+    description: "Number of wasted lines detected"
+
 runs:
   using: "node20"
   main: "dist/index.js"
