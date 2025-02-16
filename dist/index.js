@@ -79763,7 +79763,7 @@ async function run() {
             }
 
             core.info(`📄 Checking file: ${file.filename}`);
-            const content = await fetchFileContent(file.raw_url);
+            const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, context.ref);
             if (!content) {
                 core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
                 continue;
