@@ -1,30 +1,30 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const fs = require('fs');
+const fetch = require('node-fetch');
+const { parse } = require('@babel/parser');
+const traverse = require('@babel/traverse').default;
 
 async function run() {
     try {
         core.info("🚀 Wasted Lines Detector is starting...");
-
+        
         const token = core.getInput('github_token');
         if (!token) {
             core.setFailed("❌ Error: Missing GitHub Token!");
             return;
         }
-
-        core.info("✅ GitHub Token received (hidden for security).");
+        
         const octokit = github.getOctokit(token);
         const { context } = github;
         const pr = context.payload.pull_request;
-
         if (!pr) {
-            core.setFailed('❌ No pull request found. Exiting.');
+            core.setFailed('❌ No pull request found.');
             return;
         }
-
+        
         core.info(`🔍 PR Detected: #${pr.number} - Fetching changed files...`);
 
-        // Fetch changed files in the PR
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -32,119 +32,121 @@ async function run() {
         });
 
         let comments = [];
-        let totalWastedLines = 0;
-
-        core.info(`📂 Found ${files.data.length} changed files.`);
-
+        
         for (const file of files.data) {
+            if (!isSupportedFile(file.filename)) {
+                core.info(`⏭ Skipping unsupported file: ${file.filename}`);
+                continue;
+            }
+
             core.info(`📄 Checking file: ${file.filename}`);
+            const content = await fetchFileContent(file.raw_url);
+            if (!content) {
+                core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
+                continue;
+            }
 
-            if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
-                core.info(`🔍 Analyzing file: ${file.filename}`);
-                
-                const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, context.ref);
-                if (!content) {
-                    core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
-                    continue;  // Skip analysis if file content is empty
-                }
-                core.info(`📜 File content preview:\n${content.substring(0, 500)}`);
+            core.info(`🔍 Analyzing file: ${file.filename}`);
+            const suggestions = analyzeCode(content, file.filename);
 
-                const suggestions = analyzeCode(content, file.filename);
-                if (suggestions.length > 0) {
-                    core.info(`💡 Suggestions found for ${file.filename}`);
-                    totalWastedLines += suggestions.length;
-                    comments.push({
-                        path: file.filename,
-                        body: suggestions.join("\n"),
-                        position: 1
-                    });
-                } else {
-                    core.info(`👍 No issues found in ${file.filename}`);
-                }
-            } else {
-                core.info(`⏭ Skipping non-code file: ${file.filename}`);
+            if (suggestions.length > 0) {
+                comments.push({
+                    path: file.filename,
+                    body: suggestions.join("\n"),
+                    position: 1
+                });
             }
         }
 
-        // Store the total number of wasted lines as output
-        core.setOutput("wasted_lines", totalWastedLines);
-        core.info(`📊 Total Wasted Lines Detected: ${totalWastedLines}`);
-
         if (comments.length > 0) {
-            core.info(`📝 Posting review comments on PR #${pr.number}...`);
             await octokit.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
                 body: `### 🚀 Wasted Lines Detector Report\n\n${comments.map(c => `📌 **${c.path}**\n${c.body}`).join("\n\n")}`
             });
-            core.info("✅ Review comments posted successfully.");
         } else {
-            core.info("🎉 No issues detected. No comments added.");
+            core.info("🎉 No wasted lines detected!");
         }
-
     } catch (error) {
-        core.setFailed(`❌ Error: ${error.message}`);
+        core.setFailed(`Error: ${error.message}`);
     }
 }
 
-// Fetch file content from GitHub
-async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
+// Check if file type is supported
+function isSupportedFile(filename) {
+    return filename.endsWith('.js') || filename.endsWith('.py') || filename.endsWith('.sh') || filename.endsWith('.rb') || filename.endsWith('.groovy');
+}
+
+// Fetch file content from GitHub properly
+async function fetchFileContent(url) {
     try {
-        const response = await octokit.rest.repos.getContent({
-            owner: repoOwner,
-            repo: repoName,
-            path: filePath,
-            ref: branch // Fetch from the correct branch
-        });
-
-        // Decode base64 content
-        return Buffer.from(response.data.content, 'base64').toString('utf-8');
+        const response = await fetch(url);
+        if (!response.ok) {
+            core.warning(`⚠️ Failed to fetch content: ${response.status} ${response.statusText}`);
+            return '';
+        }
+        return await response.text();
     } catch (error) {
-        console.error(`⚠️ Error fetching ${filePath}: ${error.message}`);
-        return null;
+        core.warning(`⚠️ Error fetching file content: ${error.message}`);
+        return '';
     }
 }
-
-
-
 
 // Analyze code for inefficiencies
 function analyzeCode(content, filename) {
     let suggestions = [];
-    core.info(`🔎 Running code analysis on ${filename}`);
-
-    // 1️⃣ Detect Unnecessary If-Else Statements
-    const ifElsePattern = /\bif\s*\(.*\)\s*\{[^{}]*\}\s*else\s*\{[^{}]*\}/g;
-    if (ifElsePattern.test(content)) {
-        core.info(`⚠️ Unnecessary if-else block detected.`);
-        suggestions.push(`🔍 Found an unnecessary **if-else block**. Consider using a **ternary operator**.`);
+    
+    try {
+        if (filename.endsWith('.js')) {
+            const ast = parse(content, { sourceType: "module" });
+            
+            traverse(ast, {
+                IfStatement(path) {
+                    if (path.node.test.type === 'BinaryExpression' && path.node.test.operator === '===') {
+                        suggestions.push(`🔍 Boolean comparison can be simplified: \`if (${path.node.test.left.name})\``);
+                    }
+                },
+                ForStatement(path) {
+                    if (path.node.init && path.node.init.declarations && path.node.init.declarations[0].id.name === "i") {
+                        suggestions.push("🔍 Consider replacing loop with `Array.prototype.map()`.");
+                    }
+                },
+                VariableDeclarator(path) {
+                    if (!path.scope.bindings[path.node.id.name].referenced) {
+                        suggestions.push(`🔍 Unused variable detected: \`${path.node.id.name}\``);
+                    }
+                },
+                CallExpression(path) {
+                    if (path.node.callee.type === 'MemberExpression' && path.node.callee.property.name === 'log') {
+                        suggestions.push("🔍 Too many console logs detected. Consider removing debug logs.");
+                    }
+                }
+            });
+        } else if (filename.endsWith('.py')) {
+            if (/print\(.*\)/g.test(content)) {
+                suggestions.push("🔍 Too many print statements detected in Python file.");
+            }
+            if (/if\s+.*\s+==\s+True:/g.test(content)) {
+                suggestions.push("🔍 Boolean comparison can be simplified: `if condition`.");
+            }
+        } else if (filename.endsWith('.sh')) {
+            if (/echo\s+.*$/g.test(content)) {
+                suggestions.push("🔍 Too many echo statements detected in Shell script.");
+            }
+        } else if (filename.endsWith('.rb')) {
+            if (/puts\s+.*$/g.test(content)) {
+                suggestions.push("🔍 Too many puts statements detected in Ruby script.");
+            }
+        } else if (filename.endsWith('.groovy')) {
+            if (/println\s+.*$/g.test(content)) {
+                suggestions.push("🔍 Too many println statements detected in Groovy script.");
+            }
+        }
+    } catch (error) {
+        core.warning(`⚠️ Parsing failed for ${filename}: ${error.message}`);
     }
-
-    // 2️⃣ Detect Duplicate Variable Assignments
-    const duplicateVarPattern = /\b(let|const|var)\s+(\w+)\s*=\s*[^;]+;\s*\n\s*\1\s+\2\s*=/g;
-    if (duplicateVarPattern.test(content)) {
-        core.info(`⚠️ Duplicate variable assignments detected.`);
-        suggestions.push(`🔍 Found **duplicate variable assignments**. Remove redundant lines.`);
-    }
-
-    // 3️⃣ Detect Overly Long Loops
-    const longLoopPattern = /\b(for|while)\s*\([^)]*\)\s*\{([^}]*\n){10,}/g;
-    if (longLoopPattern.test(content)) {
-        core.info(`⚠️ Overly long loop detected.`);
-        suggestions.push(`🔍 Found a **long loop** (> 10 lines). Consider refactoring into **smaller functions**.`);
-    }
-
-    // 4️⃣ Detect Console Logs (Optional)
-    const consoleLogPattern = /console\.log\(/g;
-    if ((content.match(consoleLogPattern) || []).length > 5) {
-        core.info(`⚠️ Too many console logs detected.`);
-        suggestions.push(`🔍 Found **too many console.log statements**. Consider removing unnecessary logs.`);
-    }
-
-    core.info(`📋 Total suggestions found: ${suggestions.length}`);
     return suggestions;
 }
-
 
 run();
