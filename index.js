@@ -40,14 +40,16 @@ async function run() {
             core.info(`📄 Checking file: ${file.filename}`);
 
             if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
-                core.info(`✅ Analyzing file: ${file.filename}`);
-
                 core.info(`🔍 Analyzing file: ${file.filename}`);
-                core.info(`📜 File content preview:\n${content.substring(0, 500)}`);
 
                 const content = await fetchFileContent(file.raw_url);
-                const suggestions = analyzeCode(content, file.filename);
+                if (!content) {
+                    core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
+                    continue;  // Skip analysis if file content is empty
+                }
+                core.info(`📜 File content preview:\n${content.substring(0, 500)}`);
 
+                const suggestions = analyzeCode(content, file.filename);
                 if (suggestions.length > 0) {
                     core.info(`💡 Suggestions found for ${file.filename}`);
                     totalWastedLines += suggestions.length;
