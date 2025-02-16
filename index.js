@@ -41,8 +41,9 @@ async function run() {
 
             if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
                 core.info(`🔍 Analyzing file: ${file.filename}`);
-
-                const content = await fetchFileContent(file.raw_url);
+                
+                const rawUrl = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${pr.head.sha}/${file.filename}`;
+                const content = await fetchFileContent(rawUrl);
                 if (!content) {
                     core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
                     continue;  // Skip analysis if file content is empty
@@ -90,15 +91,24 @@ async function run() {
 
 // Fetch file content from GitHub
 async function fetchFileContent(url) {
-    core.info(`📥 Fetching content from: ${url}`);
-    const response = await fetch(url);
-    const content = await response.text();
-    
-    core.info(`📜 Fetched ${content.length} characters.`);
-    core.info(`🔹 First 300 characters:\n${content.substring(0, 300)}`);
-    
-    return content;
+    try {
+        core.info(`📥 Attempting to fetch file from: ${url}`);
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            core.warning(`⚠️ Failed to fetch content: ${response.status} ${response.statusText}`);
+            return null;
+        }
+
+        const content = await response.text();
+        core.info(`📜 First 300 characters of content:\n${content.substring(0, 300)}`);
+        return content;
+    } catch (error) {
+        core.warning(`❌ Error fetching file: ${error.message}`);
+        return null;
+    }
 }
+
 
 
 // Analyze code for inefficiencies
