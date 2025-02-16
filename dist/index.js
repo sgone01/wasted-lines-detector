@@ -34532,6 +34532,9 @@ async function run() {
             if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
                 core.info(`✅ Analyzing file: ${file.filename}`);
 
+                core.info(`🔍 Analyzing file: ${file.filename}`);
+                core.info(`📜 File content preview:\n${content.substring(0, 500)}`);
+
                 const content = await fetchFileContent(file.raw_url);
                 const suggestions = analyzeCode(content, file.filename);
 
@@ -34578,38 +34581,51 @@ async function fetchFileContent(url) {
     core.info(`📥 Fetching content from: ${url}`);
     const response = await fetch(url);
     const content = await response.text();
+    
     core.info(`📜 Fetched ${content.length} characters.`);
+    core.info(`🔹 First 300 characters:\n${content.substring(0, 300)}`);
+    
     return content;
 }
+
 
 // Analyze code for inefficiencies
 function analyzeCode(content, filename) {
     let suggestions = [];
     core.info(`🔎 Running code analysis on ${filename}`);
 
-    // Check for unnecessary if-else statements
+    // 1️⃣ Detect Unnecessary If-Else Statements
     const ifElsePattern = /\bif\s*\(.*\)\s*\{[^{}]*\}\s*else\s*\{[^{}]*\}/g;
     if (ifElsePattern.test(content)) {
         core.info(`⚠️ Unnecessary if-else block detected.`);
         suggestions.push(`🔍 Found an unnecessary **if-else block**. Consider using a **ternary operator**.`);
     }
 
-    // Check for duplicate variable assignments
-    const duplicateVarPattern = /\b(let|const|var)\s+(\w+)\s*=.*;\s*\1\s+\2\s*=.*/g;
+    // 2️⃣ Detect Duplicate Variable Assignments
+    const duplicateVarPattern = /\b(let|const|var)\s+(\w+)\s*=\s*[^;]+;\s*\n\s*\1\s+\2\s*=/g;
     if (duplicateVarPattern.test(content)) {
         core.info(`⚠️ Duplicate variable assignments detected.`);
         suggestions.push(`🔍 Found **duplicate variable assignments**. Remove redundant lines.`);
     }
 
-    // Detect overly complex loops
+    // 3️⃣ Detect Overly Long Loops
     const longLoopPattern = /\b(for|while)\s*\([^)]*\)\s*\{([^}]*\n){10,}/g;
     if (longLoopPattern.test(content)) {
         core.info(`⚠️ Overly long loop detected.`);
         suggestions.push(`🔍 Found a **long loop** (> 10 lines). Consider refactoring into **smaller functions**.`);
     }
 
+    // 4️⃣ Detect Console Logs (Optional)
+    const consoleLogPattern = /console\.log\(/g;
+    if ((content.match(consoleLogPattern) || []).length > 5) {
+        core.info(`⚠️ Too many console logs detected.`);
+        suggestions.push(`🔍 Found **too many console.log statements**. Consider removing unnecessary logs.`);
+    }
+
+    core.info(`📋 Total suggestions found: ${suggestions.length}`);
     return suggestions;
 }
+
 
 run();
 
