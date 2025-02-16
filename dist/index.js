@@ -34532,8 +34532,7 @@ async function run() {
             if (file.filename.endsWith('.js') || file.filename.endsWith('.py')) {
                 core.info(`🔍 Analyzing file: ${file.filename}`);
                 
-                const rawUrl = `https://raw.githubusercontent.com/${context.repo.owner}/${context.repo.repo}/${pr.head.ref}/${file.filename}`;
-                const content = await fetchFileContent(rawUrl);
+                const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, context.ref);
                 if (!content) {
                     core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
                     continue;  // Skip analysis if file content is empty
@@ -34580,24 +34579,23 @@ async function run() {
 }
 
 // Fetch file content from GitHub
-async function fetchFileContent(url) {
+async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
     try {
-        core.info(`📥 Attempting to fetch file from: ${url}`);
-        const response = await fetch(url);
+        const response = await octokit.rest.repos.getContent({
+            owner: repoOwner,
+            repo: repoName,
+            path: filePath,
+            ref: branch // Fetch from the correct branch
+        });
 
-        if (!response.ok) {
-            core.warning(`⚠️ Failed to fetch content: ${response.status} ${response.statusText}`);
-            return null;
-        }
-
-        const content = await response.text();
-        core.info(`📜 First 300 characters of content:\n${content.substring(0, 300)}`);
-        return content;
+        // Decode base64 content
+        return Buffer.from(response.data.content, 'base64').toString('utf-8');
     } catch (error) {
-        core.warning(`❌ Error fetching file: ${error.message}`);
+        console.error(`⚠️ Error fetching ${filePath}: ${error.message}`);
         return null;
     }
 }
+
 
 
 
