@@ -12,6 +12,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Wasted Lines Detector
-        uses: ./wasted-lines-detector
+        uses: .
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
