@@ -1,0 +1,17 @@
+name: Wasted Lines Detector
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+
+jobs:
+  detect-wasted-lines:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run Wasted Lines Detector
+        uses: ./wasted-lines-detector
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}

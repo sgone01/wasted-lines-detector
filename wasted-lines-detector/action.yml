@@ -1,0 +1,9 @@
+name: 'Wasted Lines Detector'
+description: 'Finds unnecessarily long code and suggests optimizations'
+inputs:
+  github_token:
+    description: 'GitHub Token for PR comments'
+    required: true
+runs:
+  using: 'node16'
+  main: 'index.js'
