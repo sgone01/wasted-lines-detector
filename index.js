@@ -79,14 +79,19 @@ function isSupportedFile(filename) {
 }
 
 // Fetch file content from GitHub properly
-async function fetchFileContent(url) {
+async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
     try {
-        const response = await fetch(url);
+        const response = await octokit.rest.repos.getContent({
+            owner: repoOwner,
+            repo: repoName,
+            path: filePath,
+            ref: branch // Fetch from the correct branch
+        });
         if (!response.ok) {
             core.warning(`⚠️ Failed to fetch content: ${response.status} ${response.statusText}`);
             return '';
         }
-        return await response.text();
+        return Buffer.from(response.data.content, 'base64').toString('utf-8');
     } catch (error) {
         core.warning(`⚠️ Error fetching file content: ${error.message}`);
         return '';
