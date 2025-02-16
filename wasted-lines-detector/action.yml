@@ -1,9 +1,16 @@
-name: 'Wasted Lines Detector'
-description: 'Finds unnecessarily long code and suggests optimizations'
+name: "Wasted Lines Detector"
+description: "Detects inefficient or overly complicated code and suggests improvements"
+author: "Your Name"
+branding:
+  icon: "check-circle"
+  color: "blue"
+
 inputs:
   github_token:
-    description: 'GitHub Token for PR comments'
+    description: "GitHub Token for authentication"
     required: true
+
 runs:
-  using: 'node16'
-  main: 'index.js'
+  using: "node20"
+  main: "index.js"
+
