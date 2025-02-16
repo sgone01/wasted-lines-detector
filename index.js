@@ -6,7 +6,6 @@ async function run() {
     try {
         core.info("🚀 Wasted Lines Detector is starting...");
 
-        // Debug: Log input token (Don't log actual secrets!)
         const token = core.getInput('github_token');
         if (!token) {
             core.setFailed("❌ Error: Missing GitHub Token!");
@@ -25,7 +24,7 @@ async function run() {
 
         core.info(`🔍 PR Detected: #${pr.number} - Fetching changed files...`);
 
-        // Fetch changed files in the pull request
+        // Fetch changed files in the PR
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -33,6 +32,8 @@ async function run() {
         });
 
         let comments = [];
+        let totalWastedLines = 0;
+
         core.info(`📂 Found ${files.data.length} changed files.`);
 
         for (const file of files.data) {
@@ -46,6 +47,7 @@ async function run() {
 
                 if (suggestions.length > 0) {
                     core.info(`💡 Suggestions found for ${file.filename}`);
+                    totalWastedLines += suggestions.length;
                     comments.push({
                         path: file.filename,
                         body: suggestions.join("\n"),
@@ -58,6 +60,10 @@ async function run() {
                 core.info(`⏭ Skipping non-code file: ${file.filename}`);
             }
         }
+
+        // Store the total number of wasted lines as output
+        core.setOutput("wasted_lines", totalWastedLines);
+        core.info(`📊 Total Wasted Lines Detected: ${totalWastedLines}`);
 
         if (comments.length > 0) {
             core.info(`📝 Posting review comments on PR #${pr.number}...`);
