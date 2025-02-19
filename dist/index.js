@@ -79723,7 +79723,6 @@ module.exports = /*#__PURE__*/JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(8984);
 const github = __nccwpck_require__(632);
-const fs = __nccwpck_require__(9896);
 const fetch = __nccwpck_require__(3061);
 const { parse } = __nccwpck_require__(4257);
 const traverse = (__nccwpck_require__(1480)["default"]);
@@ -79764,7 +79763,7 @@ async function run() {
             }
 
             core.info(`📄 Checking file: ${file.filename}`);
-            const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, pr.head.ref); // Use pr.head.ref
+            const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, pr.head.ref);
             if (!content) {
                 core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
                 continue;
@@ -79831,17 +79830,17 @@ async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) 
     }
 }
 
-
 // Analyze code for inefficiencies
 function analyzeCode(content, filename) {
     let suggestions = [];
 
     try {
         if (filename.endsWith('.js')) {
-            const ast = parse(content, { sourceType: "module" });
+            const ast = parse(content, { sourceType: "module", plugins: ["jsx"] });
 
             traverse(ast, {
                 IfStatement(path) {
+                    // Check for redundant boolean comparison
                     if (path.node.test.type === 'BinaryExpression' && path.node.test.operator === '===') {
                         suggestions.push({
                             message: `🔍 Boolean comparison can be simplified: \`if (${path.node.test.left.name})\``,
@@ -79855,6 +79854,7 @@ function analyzeCode(content, filename) {
                     }
                 },
                 ForStatement(path) {
+                    // Suggest replacing basic for loop with forEach/map
                     if (path.node.init && path.node.init.declarations && path.node.init.declarations[0].id.name === "i") {
                         suggestions.push({
                             message: "🔍 Consider replacing basic `for` loop with `Array.prototype.forEach()` or `Array.prototype.map()` for improved readability.",
@@ -79863,14 +79863,16 @@ function analyzeCode(content, filename) {
                     }
                 },
                 VariableDeclarator(path) {
-                    if (!path.scope.bindings[path.node.id.name].referenced) {
+                    const variableName = path.node.id.name;
+                    if (!path.scope.bindings[variableName].referenced) {
                         suggestions.push({
-                            message: `🔍 Unused variable detected: \`${path.node.id.name}\``,
+                            message: `🔍 Unused variable detected: \`${variableName}\``,
                             line: path.node.loc.start.line
                         });
                     }
                 },
                 CallExpression(path) {
+                    // Detect too many console logs
                     if (path.node.callee.type === 'MemberExpression' && path.node.callee.property.name === 'log') {
                         suggestions.push({
                             message: "🔍 Too many console logs detected. Consider removing debug logs.",
