@@ -87944,7 +87944,7 @@ async function run() {
         const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, useAiTool, aiApiKey);
 
         if (comments.length > 0) {
-            const commentBody = generateCommentBody(comments);
+            const commentBody = generateCommentBody(comments, context.repo, pr.head.ref);
 
             await octokit.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -87985,7 +87985,7 @@ async function analyzeFiles(files, octokit, repo, branch, useAiTool, aiApiKey) {
             suggestions.forEach(suggestion => {
                 comments.push({
                     path: file.filename,
-                    body: `\`\`\`${getLanguageFromFilename(file.filename)}\n${suggestion.message}\n\`\`\``,
+                    body: suggestion,
                     position: suggestion.line
                 });
             });
@@ -88034,7 +88034,7 @@ async function getSuggestionsFromAiTool(content, apiKey, filename) {
     });
 
     const suggestions = response.data.choices ? response.data.choices[0].message.content.trim() : '';
-    return `\`\`\`${language}\n${suggestions}\n\`\`\``;
+    return suggestions;
 }
 
 function getLanguageFromFilename(filename) {
@@ -88145,7 +88145,7 @@ function analyzeNonJsCode(content, filename, suggestions) {
     });
 }
 
-function generateCommentBody(comments) {
+function generateCommentBody(comments, repo, ref) {
     const groupedComments = comments.reduce((acc, comment) => {
         if (!acc[comment.path]) {
             acc[comment.path] = [];
@@ -88154,29 +88154,16 @@ function generateCommentBody(comments) {
         return acc;
     }, {});
 
-    const { context } = github;
-    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
+    const repoUrl = `https://github.com/${repo.owner}/${repo.repo}/blob/${ref}`;
 
     let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
     for (const [file, issues] of Object.entries(groupedComments)) {
         commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
 
-        const issueGroups = issues.reduce((acc, issue) => {
-            if (!acc[issue.body]) {
-                acc[issue.body] = [];
-            }
-            acc[issue.body].push(issue.position);
-            return acc;
-        }, {});
-
-        for (const [message, positions] of Object.entries(issueGroups)) {
-            if (positions.length > 1) {
-                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
-                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
-            } else {
-                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
-            }
-        }
+        issues.forEach(issue => {
+            commentBody += `\n**Suggestion:**\n`;
+            commentBody += `\`\`\`${getLanguageFromFilename(file)}\n${issue.body}\n\`\`\`\n`;
+        });
         commentBody += '\n';
     }
 
