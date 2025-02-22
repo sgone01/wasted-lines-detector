@@ -79823,7 +79823,7 @@ function generateCommentBody(comments) {
     const commitSha = context.payload.pull_request.head.sha;
     const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${commitSha}`;
 
-    let commentBody = `### 🚀 Wasted Lines Detector Report\n\n**Commit:** [${commitSha}](${commitUrl})\n\n`;
+    let commentBody = `### 🚀 Wasted Lines Detector Report\n\n**Pull Request:** ${repoUrl}\n\n`;
     for (const [file, issues] of Object.entries(groupedComments)) {
         commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
 
@@ -79838,7 +79838,7 @@ function generateCommentBody(comments) {
         for (const [message, positions] of Object.entries(issueGroups)) {
             if (positions.length > 1) {
                 const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
-                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
+                commentBody += `- Lines ${lineLinks}: ${message}\n`;
             } else {
                 commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
             }
