@@ -1,6 +1,6 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const fetch = require('node-fetch');
+const axios = require('axios');
 const { parse } = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
 
@@ -8,8 +8,9 @@ async function run() {
     try {
         core.info("🚀 Wasted Lines Detector is starting...");
 
-        // Use the custom token for the bot name
         const token = process.env.GITHUB_TOKEN || core.getInput('github_token');
+        const useAiTool = core.getInput('use_ai_tool') === 'true';
+        const aiApiKey = process.env.AI_API_KEY || core.getInput('ai_api_key');
         if (!token) {
             core.setFailed("❌ Error: Missing GitHub Token!");
             return;
@@ -32,7 +33,7 @@ async function run() {
             pull_number: pr.number,
         });
 
-        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
+        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, useAiTool, aiApiKey);
 
         if (comments.length > 0) {
             const commentBody = generateCommentBody(comments);
@@ -53,7 +54,7 @@ async function run() {
     }
 }
 
-async function analyzeFiles(files, octokit, repo, branch) {
+async function analyzeFiles(files, octokit, repo, branch, useAiTool, aiApiKey) {
     let comments = [];
 
     for (const file of files) {
@@ -70,13 +71,13 @@ async function analyzeFiles(files, octokit, repo, branch) {
         }
 
         core.info(`🔍 Analyzing file: ${file.filename}`);
-        const suggestions = analyzeCode(content, file.filename);
+        const suggestions = useAiTool ? await getSuggestionsFromAiTool(content, aiApiKey, file.filename) : analyzeCode(content, file.filename);
 
         if (suggestions.length > 0) {
             suggestions.forEach(suggestion => {
                 comments.push({
                     path: file.filename,
-                    body: suggestion.message,
+                    body: `\`\`\`${getLanguageFromFilename(file.filename)}\n${suggestion.message}\n\`\`\``,
                     position: suggestion.line
                 });
             });
@@ -86,68 +87,55 @@ async function analyzeFiles(files, octokit, repo, branch) {
     return comments;
 }
 
-function generateCommentBody(comments) {
-    const groupedComments = comments.reduce((acc, comment) => {
-        if (!acc[comment.path]) {
-            acc[comment.path] = [];
-        }
-        acc[comment.path].push(comment);
-        return acc;
-    }, {});
+async function fetchFileContent(octokit, owner, repo, path, ref) {
+    const response = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref,
+    });
 
-    const { context } = github;
-    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
-
-    let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
-    for (const [file, issues] of Object.entries(groupedComments)) {
-        commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
-
-        const issueGroups = issues.reduce((acc, issue) => {
-            if (!acc[issue.body]) {
-                acc[issue.body] = [];
-            }
-            acc[issue.body].push(issue.position);
-            return acc;
-        }, {});
-
-        for (const [message, positions] of Object.entries(issueGroups)) {
-            if (positions.length > 1) {
-                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
-                commentBody += `- Lines ${lineLinks}: ${message}\n`;
-            } else {
-                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
-            }
-        }
-        commentBody += '\n';
-    }
-
-    return commentBody;
+    const content = Buffer.from(response.data.content, 'base64').toString('utf-8');
+    return content;
 }
 
-function isSupportedFile(filename) {
-    const supportedExtensions = ['.js', '.py', '.sh', '.rb', '.groovy'];
-    return supportedExtensions.some(ext => filename.endsWith(ext));
+async function getSuggestionsFromAiTool(content, apiKey, filename) {
+    const language = getLanguageFromFilename(filename);
+    const apiUrl = 'https://api.x.ai/v1/chat/completions';
+    const requestBody = {
+        messages: [
+            {
+                role: "system",
+                content: "You are a test assistant."
+            },
+            {
+                role: "user",
+                content: `Review the following ${language} code and suggest improvements:\n\n${content}`
+            }
+        ],
+        model: "grok-2-latest",
+        stream: false,
+        temperature: 0
+    };
+
+    const response = await axios.post(apiUrl, requestBody, {
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+    });
+
+    const suggestions = response.data.choices ? response.data.choices[0].message.content.trim() : '';
+    return `\`\`\`${language}\n${suggestions}\n\`\`\``;
 }
 
-async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
-    try {
-        const response = await octokit.rest.repos.getContent({
-            owner: repoOwner,
-            repo: repoName,
-            path: filePath,
-            ref: branch
-        });
-
-        if (!response || !response.data || !response.data.content) {
-            core.warning(`⚠️ Failed to fetch content: No content found for ${filePath}`);
-            return '';
-        }
-
-        return Buffer.from(response.data.content, 'base64').toString('utf-8');
-    } catch (error) {
-        core.warning(`⚠️ Error fetching file content for ${filePath}: ${error.message}`);
-        return '';
-    }
+function getLanguageFromFilename(filename) {
+    if (filename.endsWith('.js')) return 'javascript';
+    if (filename.endsWith('.py')) return 'python';
+    if (filename.endsWith('.sh')) return 'shell';
+    if (filename.endsWith('.rb')) return 'ruby';
+    if (filename.endsWith('.groovy')) return 'groovy';
+    return '';
 }
 
 function analyzeCode(content, filename) {
@@ -247,6 +235,49 @@ function analyzeNonJsCode(content, filename, suggestions) {
             }
         }
     });
+}
+
+function generateCommentBody(comments) {
+    const groupedComments = comments.reduce((acc, comment) => {
+        if (!acc[comment.path]) {
+            acc[comment.path] = [];
+        }
+        acc[comment.path].push(comment);
+        return acc;
+    }, {});
+
+    const { context } = github;
+    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
+
+    let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
+    for (const [file, issues] of Object.entries(groupedComments)) {
+        commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
+
+        const issueGroups = issues.reduce((acc, issue) => {
+            if (!acc[issue.body]) {
+                acc[issue.body] = [];
+            }
+            acc[issue.body].push(issue.position);
+            return acc;
+        }, {});
+
+        for (const [message, positions] of Object.entries(issueGroups)) {
+            if (positions.length > 1) {
+                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
+                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
+            } else {
+                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
+            }
+        }
+        commentBody += '\n';
+    }
+
+    return commentBody;
+}
+
+function isSupportedFile(filename) {
+    const supportedExtensions = ['.js', '.py', '.sh', '.rb', '.groovy'];
+    return supportedExtensions.some(ext => filename.endsWith(ext));
 }
 
 run();

@@ -13,6 +13,9 @@ inputs:
     description: "Use GitHub Copilot to suggest improvements"
     required: false
     default: false
+  ai_api_key:
+    description: "API Key for AI-based code analysis"
+    required: true
 
 outputs:
   wasted_lines:
