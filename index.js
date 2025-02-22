@@ -113,7 +113,7 @@ function generateCommentBody(comments) {
         for (const [message, positions] of Object.entries(issueGroups)) {
             if (positions.length > 1) {
                 const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
-                commentBody += `- Lines ${lineLinks}: ${message}\n`;
+                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
             } else {
                 commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
             }
