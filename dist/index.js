@@ -79818,9 +79818,12 @@ function generateCommentBody(comments) {
         return acc;
     }, {});
 
+    const { context } = github;
+    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
+
     let commentBody = '### 🚀 Wasted Lines Detector Report\n\n';
     for (const [file, issues] of Object.entries(groupedComments)) {
-        commentBody += `📄 **${file}**\n`;
+        commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
 
         const issueGroups = issues.reduce((acc, issue) => {
             if (!acc[issue.body]) {
@@ -79832,9 +79835,10 @@ function generateCommentBody(comments) {
 
         for (const [message, positions] of Object.entries(issueGroups)) {
             if (positions.length > 1) {
-                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
+                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
+                commentBody += `- Lines ${lineLinks}: ${message}\n`;
             } else {
-                commentBody += `- Line ${positions[0]}: ${message}\n`;
+                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
             }
         }
         commentBody += '\n';
