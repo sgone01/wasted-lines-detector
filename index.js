@@ -97,10 +97,8 @@ function generateCommentBody(comments) {
 
     const { context } = github;
     const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
-    const commitSha = context.payload.pull_request.head.sha;
-    const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${commitSha}`;
 
-    let commentBody = `### 🚀 Wasted Lines Detector Report\n\n**Pull Request:** ${repoUrl}\n\n`;
+    let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
     for (const [file, issues] of Object.entries(groupedComments)) {
         commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
 
