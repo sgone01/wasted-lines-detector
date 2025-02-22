@@ -2,7 +2,7 @@
     "name": "wasted-lines-detector",
     "version": "1.0.0",
     "scripts": {
-        "prebuild": "rm -rf node_modules && npm install",
+        "prebuild": "rm -rf node_modules && npm install & git add . && git commit -m 'chore: update dependencies' && git push",
         "build": "ncc build index.js -o dist"
     },
     "dependencies": {
@@ -10,6 +10,7 @@
         "@actions/github": "^2.2.0",
         "@babel/parser": "^7.23.3",
         "@babel/traverse": "^7.23.3",
+        "axios": "^1.7.9",
         "node-fetch": "^2.6.1"
     },
     "devDependencies": {
