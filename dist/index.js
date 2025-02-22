@@ -35691,14 +35691,6 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
-/***/ 3462:
-/***/ ((module) => {
-
-module.exports = eval("require")("@github/copilot-language-server");
-
-
-/***/ }),
-
 /***/ 1482:
 /***/ ((module) => {
 
@@ -79731,16 +79723,16 @@ module.exports = /*#__PURE__*/JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(8984);
 const github = __nccwpck_require__(632);
+const fetch = __nccwpck_require__(3061);
 const { parse } = __nccwpck_require__(4257);
 const traverse = (__nccwpck_require__(1480)["default"]);
-const { CopilotLanguageServer } = __nccwpck_require__(3462);
 
 async function run() {
     try {
         core.info("🚀 Wasted Lines Detector is starting...");
 
+        // Use the custom token for the bot name
         const token = process.env.GITHUB_TOKEN || core.getInput('github_token');
-        const useGithubCopilot = core.getInput('use_github_copilot') === 'true';
         if (!token) {
             core.setFailed("❌ Error: Missing GitHub Token!");
             return;
@@ -79763,7 +79755,7 @@ async function run() {
             pull_number: pr.number,
         });
 
-        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, useGithubCopilot, token);
+        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
 
         if (comments.length > 0) {
             const commentBody = generateCommentBody(comments);
@@ -79784,7 +79776,7 @@ async function run() {
     }
 }
 
-async function analyzeFiles(files, octokit, repo, branch, useGithubCopilot, token) {
+async function analyzeFiles(files, octokit, repo, branch) {
     let comments = [];
 
     for (const file of files) {
@@ -79801,13 +79793,13 @@ async function analyzeFiles(files, octokit, repo, branch, useGithubCopilot, toke
         }
 
         core.info(`🔍 Analyzing file: ${file.filename}`);
-        const suggestions = useGithubCopilot ? await getSuggestionsFromCopilot(content, token, file.filename) : analyzeCode(content, file.filename);
+        const suggestions = analyzeCode(content, file.filename);
 
         if (suggestions.length > 0) {
             suggestions.forEach(suggestion => {
                 comments.push({
                     path: file.filename,
-                    body: `\`\`\`${getLanguageFromFilename(file.filename)}\n${suggestion.message}\n\`\`\``,
+                    body: suggestion.message,
                     position: suggestion.line
                 });
             });
@@ -79817,36 +79809,68 @@ async function analyzeFiles(files, octokit, repo, branch, useGithubCopilot, toke
     return comments;
 }
 
-async function fetchFileContent(octokit, owner, repo, path, ref) {
-    const response = await octokit.rest.repos.getContent({
-        owner,
-        repo,
-        path,
-        ref,
-    });
+function generateCommentBody(comments) {
+    const groupedComments = comments.reduce((acc, comment) => {
+        if (!acc[comment.path]) {
+            acc[comment.path] = [];
+        }
+        acc[comment.path].push(comment);
+        return acc;
+    }, {});
 
-    const content = Buffer.from(response.data.content, 'base64').toString('utf-8');
-    return content;
+    const { context } = github;
+    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
+
+    let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
+    for (const [file, issues] of Object.entries(groupedComments)) {
+        commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
+
+        const issueGroups = issues.reduce((acc, issue) => {
+            if (!acc[issue.body]) {
+                acc[issue.body] = [];
+            }
+            acc[issue.body].push(issue.position);
+            return acc;
+        }, {});
+
+        for (const [message, positions] of Object.entries(issueGroups)) {
+            if (positions.length > 1) {
+                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
+                commentBody += `- Lines ${lineLinks}: ${message}\n`;
+            } else {
+                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
+            }
+        }
+        commentBody += '\n';
+    }
+
+    return commentBody;
 }
 
-async function getSuggestionsFromCopilot(content, token, filename) {
-    const language = getLanguageFromFilename(filename);
-    const copilot = new CopilotLanguageServer({
-        token,
-        language,
-    });
-
-    const suggestions = await copilot.getCompletions(content);
-    return `\`\`\`${language}\n${suggestions}\n\`\`\``;
+function isSupportedFile(filename) {
+    const supportedExtensions = ['.js', '.py', '.sh', '.rb', '.groovy'];
+    return supportedExtensions.some(ext => filename.endsWith(ext));
 }
 
-function getLanguageFromFilename(filename) {
-    if (filename.endsWith('.js')) return 'javascript';
-    if (filename.endsWith('.py')) return 'python';
-    if (filename.endsWith('.sh')) return 'shell';
-    if (filename.endsWith('.rb')) return 'ruby';
-    if (filename.endsWith('.groovy')) return 'groovy';
-    return '';
+async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
+    try {
+        const response = await octokit.rest.repos.getContent({
+            owner: repoOwner,
+            repo: repoName,
+            path: filePath,
+            ref: branch
+        });
+
+        if (!response || !response.data || !response.data.content) {
+            core.warning(`⚠️ Failed to fetch content: No content found for ${filePath}`);
+            return '';
+        }
+
+        return Buffer.from(response.data.content, 'base64').toString('utf-8');
+    } catch (error) {
+        core.warning(`⚠️ Error fetching file content for ${filePath}: ${error.message}`);
+        return '';
+    }
 }
 
 function analyzeCode(content, filename) {
@@ -79946,49 +79970,6 @@ function analyzeNonJsCode(content, filename, suggestions) {
             }
         }
     });
-}
-
-function generateCommentBody(comments) {
-    const groupedComments = comments.reduce((acc, comment) => {
-        if (!acc[comment.path]) {
-            acc[comment.path] = [];
-        }
-        acc[comment.path].push(comment);
-        return acc;
-    }, {});
-
-    const { context } = github;
-    const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}`;
-
-    let commentBody = `### 🚀 Wasted Lines Detector Report \n\n`;
-    for (const [file, issues] of Object.entries(groupedComments)) {
-        commentBody += `📄 **[${file}](${repoUrl}/${file})**\n`;
-
-        const issueGroups = issues.reduce((acc, issue) => {
-            if (!acc[issue.body]) {
-                acc[issue.body] = [];
-            }
-            acc[issue.body].push(issue.position);
-            return acc;
-        }, {});
-
-        for (const [message, positions] of Object.entries(issueGroups)) {
-            if (positions.length > 1) {
-                const lineLinks = positions.map(line => `[${line}](${repoUrl}/${file}#L${line})`).join(', ');
-                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
-            } else {
-                commentBody += `- Line [${positions[0]}](${repoUrl}/${file}#L${positions[0]}): ${message}\n`;
-            }
-        }
-        commentBody += '\n';
-    }
-
-    return commentBody;
-}
-
-function isSupportedFile(filename) {
-    const supportedExtensions = ['.js', '.py', '.sh', '.rb', '.groovy'];
-    return supportedExtensions.some(ext => filename.endsWith(ext));
 }
 
 run();
