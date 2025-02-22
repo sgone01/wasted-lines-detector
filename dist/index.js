@@ -79754,37 +79754,10 @@ async function run() {
             pull_number: pr.number,
         });
 
-        let comments = [];
-
-        for (const file of files.data) {
-            if (!isSupportedFile(file.filename)) {
-                core.info(`⏭ Skipping unsupported file: ${file.filename}`);
-                continue;
-            }
-
-            core.info(`📄 Checking file: ${file.filename}`);
-            const content = await fetchFileContent(octokit, context.repo.owner, context.repo.repo, file.filename, pr.head.ref);
-            if (!content) {
-                core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
-                continue;
-            }
-
-            core.info(`🔍 Analyzing file: ${file.filename}`);
-            const suggestions = analyzeCode(content, file.filename);
-
-            if (suggestions.length > 0) {
-                suggestions.forEach(suggestion => {
-                    comments.push({
-                        path: file.filename,
-                        body: suggestion.message,
-                        position: suggestion.line
-                    });
-                });
-            }
-        }
+        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
 
         if (comments.length > 0) {
-            const commentBody = `### 🚀 Wasted Lines Detector Report\n\n${comments.map(c => `📌 **${c.path}**, line ${c.position}:\n${c.body}`).join("\n\n")}`;
+            const commentBody = generateCommentBody(comments);
 
             await octokit.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -79802,12 +79775,48 @@ async function run() {
     }
 }
 
-// Check if file type is supported
-function isSupportedFile(filename) {
-    return filename.endsWith('.js') || filename.endsWith('.py') || filename.endsWith('.sh') || filename.endsWith('.rb') || filename.endsWith('.groovy');
+async function analyzeFiles(files, octokit, repo, branch) {
+    let comments = [];
+
+    for (const file of files) {
+        if (!isSupportedFile(file.filename)) {
+            core.info(`⏭ Skipping unsupported file: ${file.filename}`);
+            continue;
+        }
+
+        core.info(`📄 Checking file: ${file.filename}`);
+        const content = await fetchFileContent(octokit, repo.owner, repo.repo, file.filename, branch);
+        if (!content) {
+            core.warning(`⚠️ Skipping ${file.filename} due to empty content.`);
+            continue;
+        }
+
+        core.info(`🔍 Analyzing file: ${file.filename}`);
+        const suggestions = analyzeCode(content, file.filename);
+
+        if (suggestions.length > 0) {
+            suggestions.forEach(suggestion => {
+                comments.push({
+                    path: file.filename,
+                    body: suggestion.message,
+                    position: suggestion.line
+                });
+            });
+        }
+    }
+
+    return comments;
 }
 
-// Fetch file content from GitHub properly
+function generateCommentBody(comments) {
+    return `### 🚀 Wasted Lines Detector Report\n\n${comments.map(c => `📌 **${c.path}**, line ${c.position}:\n${c.body}`).join("\n\n")}`;
+}
+
+function isSupportedFile(filename) {
+    const supportedExtensions = ['.js', '.py', '.sh', '.rb', '.groovy'];
+    return supportedExtensions.some(ext => filename.endsWith(ext));
+}
+
 async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) {
     try {
         const response = await octokit.rest.repos.getContent({
@@ -79822,15 +79831,13 @@ async function fetchFileContent(octokit, repoOwner, repoName, filePath, branch) 
             return '';
         }
 
-        const content = Buffer.from(response.data.content, 'base64').toString('utf-8');
-        return content;
+        return Buffer.from(response.data.content, 'base64').toString('utf-8');
     } catch (error) {
         core.warning(`⚠️ Error fetching file content for ${filePath}: ${error.message}`);
         return '';
     }
 }
 
-// Analyze code for inefficiencies
 function analyzeCode(content, filename) {
     let suggestions = [];
 
@@ -79840,78 +79847,20 @@ function analyzeCode(content, filename) {
 
             traverse(ast, {
                 IfStatement(path) {
-                    // Check for redundant boolean comparison
-                    if (path.node.test.type === 'BinaryExpression' && path.node.test.operator === '===') {
-                        suggestions.push({
-                            message: `🔍 Boolean comparison can be simplified: \`if (${path.node.test.left.name})\``,
-                            line: path.node.loc.start.line
-                        });
-                    } else if (path.node.test.type === 'BooleanLiteral' && (path.node.test.value === true || path.node.test.value === false)) {
-                        suggestions.push({
-                            message: "🔍 Redundant boolean literal in `if` condition",
-                            line: path.node.loc.start.line
-                        });
-                    }
+                    checkIfStatement(path, suggestions);
                 },
                 ForStatement(path) {
-                    // Suggest replacing basic for loop with forEach/map
-                    if (path.node.init && path.node.init.declarations && path.node.init.declarations[0].id.name === "i") {
-                        suggestions.push({
-                            message: "🔍 Consider replacing basic `for` loop with `Array.prototype.forEach()` or `Array.prototype.map()` for improved readability.",
-                            line: path.node.loc.start.line
-                        });
-                    }
+                    checkForStatement(path, suggestions);
                 },
                 VariableDeclarator(path) {
-                    const variableName = path.node.id.name;
-                    if (!path.scope.bindings[variableName].referenced) {
-                        suggestions.push({
-                            message: `🔍 Unused variable detected: \`${variableName}\``,
-                            line: path.node.loc.start.line
-                        });
-                    }
+                    checkVariableDeclarator(path, suggestions);
                 },
                 CallExpression(path) {
-                    // Detect too many console logs
-                    if (path.node.callee.type === 'MemberExpression' && path.node.callee.property.name === 'log') {
-                        suggestions.push({
-                            message: "🔍 Too many console logs detected. Consider removing debug logs.",
-                            line: path.node.loc.start.line
-                        });
-                    }
+                    checkCallExpression(path, suggestions);
                 }
             });
-        } else if (filename.endsWith('.py')) {
-            content.split('\n').forEach((line, index) => {
-                const lineNumber = index + 1;
-                if (/print\(.*\)/g.test(line)) {
-                    suggestions.push({ message: "🔍 Too many print statements detected in Python file.", line: lineNumber });
-                }
-                if (/if\s+.*\s+==\s+True:/g.test(line)) {
-                    suggestions.push({ message: "🔍 Boolean comparison can be simplified: `if condition`.", line: lineNumber });
-                }
-            });
-        } else if (filename.endsWith('.sh')) {
-            content.split('\n').forEach((line, index) => {
-                const lineNumber = index + 1;
-                if (/echo\s+.*$/g.test(line)) {
-                    suggestions.push({ message: "🔍 Too many echo statements detected in Shell script.", line: lineNumber });
-                }
-            });
-        } else if (filename.endsWith('.rb')) {
-            content.split('\n').forEach((line, index) => {
-                const lineNumber = index + 1;
-                if (/puts\s+.*$/g.test(line)) {
-                    suggestions.push({ message: "🔍 Too many puts statements detected in Ruby script.", line: lineNumber });
-                }
-            });
-        } else if (filename.endsWith('.groovy')) {
-            content.split('\n').forEach((line, index) => {
-                const lineNumber = index + 1;
-                if (/println\s+.*$/g.test(line)) {
-                    suggestions.push({ message: "🔍 Too many println statements detected in Groovy script.", line: lineNumber });
-                }
-            });
+        } else {
+            analyzeNonJsCode(content, filename, suggestions);
         }
     } catch (error) {
         core.warning(`⚠️ Parsing failed for ${filename}: ${error.message}`);
@@ -79919,8 +79868,76 @@ function analyzeCode(content, filename) {
     return suggestions;
 }
 
-run();
+function checkIfStatement(path, suggestions) {
+    if (path.node.test.type === 'BinaryExpression' && path.node.test.operator === '===') {
+        suggestions.push({
+            message: `🔍 Boolean comparison can be simplified: \`if (${path.node.test.left.name})\``,
+            line: path.node.loc.start.line
+        });
+    } else if (path.node.test.type === 'BooleanLiteral' && (path.node.test.value === true || path.node.test.value === false)) {
+        suggestions.push({
+            message: "🔍 Redundant boolean literal in `if` condition",
+            line: path.node.loc.start.line
+        });
+    }
+}
 
+function checkForStatement(path, suggestions) {
+    if (path.node.init && path.node.init.declarations && path.node.init.declarations[0].id.name === "i") {
+        suggestions.push({
+            message: "🔍 Consider replacing basic `for` loop with `Array.prototype.forEach()` or `Array.prototype.map()` for improved readability.",
+            line: path.node.loc.start.line
+        });
+    }
+}
+
+function checkVariableDeclarator(path, suggestions) {
+    const variableName = path.node.id.name;
+    if (!path.scope.bindings[variableName].referenced) {
+        suggestions.push({
+            message: `🔍 Unused variable detected: \`${variableName}\``,
+            line: path.node.loc.start.line
+        });
+    }
+}
+
+function checkCallExpression(path, suggestions) {
+    if (path.node.callee.type === 'MemberExpression' && path.node.callee.property.name === 'log') {
+        suggestions.push({
+            message: "🔍 Too many console logs detected. Consider removing debug logs.",
+            line: path.node.loc.start.line
+        });
+    }
+}
+
+function analyzeNonJsCode(content, filename, suggestions) {
+    const lines = content.split('\n');
+    lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        if (filename.endsWith('.py')) {
+            if (/print\(.*\)/g.test(line)) {
+                suggestions.push({ message: "🔍 Too many print statements detected in Python file.", line: lineNumber });
+            }
+            if (/if\s+.*\s+==\s+True:/g.test(line)) {
+                suggestions.push({ message: "🔍 Boolean comparison can be simplified: `if condition`.", line: lineNumber });
+            }
+        } else if (filename.endsWith('.sh')) {
+            if (/echo\s+.*$/g.test(line)) {
+                suggestions.push({ message: "🔍 Too many echo statements detected in Shell script.", line: lineNumber });
+            }
+        } else if (filename.endsWith('.rb')) {
+            if (/puts\s+.*$/g.test(line)) {
+                suggestions.push({ message: "🔍 Too many puts statements detected in Ruby script.", line: lineNumber });
+            }
+        } else if (filename.endsWith('.groovy')) {
+            if (/println\s+.*$/g.test(line)) {
+                suggestions.push({ message: "🔍 Too many println statements detected in Groovy script.", line: lineNumber });
+            }
+        }
+    });
+}
+
+run();
 module.exports = __webpack_exports__;
 /******/ })()
 ;
