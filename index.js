@@ -8,7 +8,8 @@ async function run() {
     try {
         core.info("🚀 Wasted Lines Detector is starting...");
 
-        const token = core.getInput('github_token');
+        // Use the custom token for the bot name
+        const token = process.env.GITHUB_TOKEN || core.getInput('github_token');
         if (!token) {
             core.setFailed("❌ Error: Missing GitHub Token!");
             return;
@@ -86,7 +87,24 @@ async function analyzeFiles(files, octokit, repo, branch) {
 }
 
 function generateCommentBody(comments) {
-    return `### 🚀 Wasted Lines Detector Report\n\n${comments.map(c => `📌 **${c.path}**, line ${c.position}:\n${c.body}`).join("\n\n")}`;
+    const groupedComments = comments.reduce((acc, comment) => {
+        if (!acc[comment.path]) {
+            acc[comment.path] = [];
+        }
+        acc[comment.path].push(comment);
+        return acc;
+    }, {});
+
+    let commentBody = '### 🚀 Wasted Lines Detector Report\n\n';
+    for (const [file, issues] of Object.entries(groupedComments)) {
+        commentBody += `📄 **${file}**\n`;
+        issues.forEach(issue => {
+            commentBody += `- Line ${issue.position}: ${issue.body}\n`;
+        });
+        commentBody += '\n';
+    }
+
+    return commentBody;
 }
 
 function isSupportedFile(filename) {
