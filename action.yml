@@ -9,6 +9,10 @@ inputs:
   github_token:
     description: "GitHub Token for authentication"
     required: true
+  use_github_copilot:
+    description: "Use GitHub Copilot to suggest improvements"
+    required: false
+    default: false
 
 outputs:
   wasted_lines:
