@@ -98,9 +98,22 @@ function generateCommentBody(comments) {
     let commentBody = '### 🚀 Wasted Lines Detector Report\n\n';
     for (const [file, issues] of Object.entries(groupedComments)) {
         commentBody += `📄 **${file}**\n`;
-        issues.forEach(issue => {
-            commentBody += `- Line ${issue.position}: ${issue.body}\n`;
-        });
+
+        const issueGroups = issues.reduce((acc, issue) => {
+            if (!acc[issue.body]) {
+                acc[issue.body] = [];
+            }
+            acc[issue.body].push(issue.position);
+            return acc;
+        }, {});
+
+        for (const [message, positions] of Object.entries(issueGroups)) {
+            if (positions.length > 1) {
+                commentBody += `- Lines ${positions.join(', ')}: ${message}\n`;
+            } else {
+                commentBody += `- Line ${positions[0]}: ${message}\n`;
+            }
+        }
         commentBody += '\n';
     }
 
