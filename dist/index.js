@@ -53049,6 +53049,34 @@ ${content}
 }
 
 
+async function deletePreviousComments(octokit, repo, prNumber) {
+    try {
+        const { data: comments } = await octokit.rest.pulls.listReviewComments({
+            owner: repo.owner,
+            repo: repo.repo,
+            pull_number: prNumber
+        });
+
+        // Filter comments made by the GitHub App
+        const botComments = comments.filter(comment => 
+            comment.user.type === "Bot" || comment.user.login.includes("[bot]")
+        );
+
+        // Delete each bot-generated comment
+        for (const comment of botComments) {
+            await octokit.rest.pulls.deleteReviewComment({
+                owner: repo.owner,
+                repo: repo.repo,
+                comment_id: comment.id
+            });
+            console.log(`🗑️ Deleted old comment: ${comment.id}`);
+        }
+        
+    } catch (error) {
+        console.error("❌ Error deleting previous comments:", error);
+    }
+}
+
 async function postReviewComments(octokit, comments, repo, prNumber) {
     if (!comments || comments.length === 0) {
         console.log("No comments to post.");
@@ -53056,39 +53084,44 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
     }
 
     try {
+        // Delete old comments before posting new ones
+        await deletePreviousComments(octokit, repo, prNumber);
+
+        // Fetch PR files to determine correct positions
         const { data: pullRequestDiff } = await octokit.rest.pulls.listFiles({
             owner: repo.owner,
             repo: repo.repo,
             pull_number: prNumber
         });
 
-        const formattedComments = comments
-            .map(comment => {
-                const file = pullRequestDiff.find(f => f.filename === comment.path);
-                if (!file) {
-                    console.error(`File ${comment.path} not found in PR.`);
-                    return null;
-                }
+        // Process comments and assign correct diff positions
+        const formattedComments = comments.map(comment => {
+            const file = pullRequestDiff.find(f => f.filename === comment.path);
+            if (!file) {
+                console.error(`❌ File ${comment.path} not found in PR.`);
+                return null;
+            }
 
-                const position = getDiffPosition(file.patch, comment.line);
-                if (position === null) {
-                    console.error(`Could not determine diff position for ${comment.path}:${comment.line}`);
-                    return null;
-                }
+            // Get correct position in the diff
+            const position = getDiffPosition(file.patch, comment.line);
+            if (position === null) {
+                console.error(`❌ Could not determine diff position for ${comment.path}:${comment.line}`);
+                return null;
+            }
 
-                return {
-                    path: comment.path,
-                    position,
-                    body: comment.body
-                };
-            })
-            .filter(comment => comment !== null);
+            return {
+                path: comment.path,
+                position,
+                body: comment.body
+            };
+        }).filter(comment => comment !== null); // Remove invalid comments
 
         if (formattedComments.length === 0) {
             console.log("No valid review comments to post.");
             return;
         }
 
+        // Submit the review comments to the PR
         await octokit.rest.pulls.createReview({
             owner: repo.owner,
             repo: repo.repo,
@@ -53097,11 +53130,12 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
             comments: formattedComments
         });
 
-        console.log("Review comments posted successfully.");
+        console.log("✅ Review comments posted successfully.");
     } catch (error) {
-        console.error("Error posting review comments:", error);
+        console.error("❌ Error posting review comments:", error);
     }
 }
+
 
 function formatGitHubReviewComment(filename, originalContent, suggestion) {
     if (!suggestion || suggestion.trim() === "") {
