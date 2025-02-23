@@ -18,7 +18,7 @@ async function run() {
 
         if (!pr) return;
 
-        const latestCommitSHA = pr.head.sha; // ✅ Correctly fetch latest commit SHA
+        const latestCommitSHA = pr.head.sha; // ✅ Get the latest commit SHA
 
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
@@ -29,7 +29,7 @@ async function run() {
         const fileSuggestions = await analyzeFiles(files.data, octokit, context.repo, pr, aiApiKey);
 
         if (Object.keys(fileSuggestions).length > 0) {
-            await postPRComment(octokit, context.repo, pr, fileSuggestions);
+            await postInlineComments(octokit, context.repo, pr, latestCommitSHA, fileSuggestions);
         }
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
@@ -64,7 +64,7 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const requestBody = {
-        contents: [{ parts: [{ text: `Identify problems in this ${language} code and suggest improvements. Provide exact line numbers where changes should be made. Return suggestions in JSON format:\n\n${content}` }] }]
+        contents: [{ parts: [{ text: `Identify issues in this ${language} code and provide fixes. Return JSON with { "line": <line_number>, "issue": "<problem>", "suggestedFix": "<fixed_code>" } format:\n\n${content}` }] }]
     };
 
     try {
@@ -75,28 +75,25 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
     }
 }
 
-async function postPRComment(octokit, repo, pr, fileSuggestions) {
-    let commentBody = `### 🚀 Wasted Lines Detector Report\n\n`;
-
+async function postInlineComments(octokit, repo, pr, commitSHA, fileSuggestions) {
     for (const [filename, suggestions] of Object.entries(fileSuggestions)) {
-        const fileUrl = `https://github.com/${repo.owner}/${repo.repo}/blob/${pr.head.ref}/${filename}`;
-
-        commentBody += `#### 📂 [\`${filename}\`](${fileUrl})\n\n`;
-
         for (const suggestion of suggestions) {
-            commentBody += `- **Line ${suggestion.line}:** ${suggestion.issue}\n`;
-            commentBody += "```" + getLanguageFromFilename(filename).toLowerCase() + "\n";
-            commentBody += suggestion.suggestedFix + "\n";
-            commentBody += "```\n\n";
+            try {
+                await octokit.rest.pulls.createReviewComment({
+                    owner: repo.owner,
+                    repo: repo.repo,
+                    pull_number: pr.number,
+                    commit_id: commitSHA, // ✅ Attach to the latest commit
+                    path: filename,
+                    side: "RIGHT",
+                    line: suggestion.line, // ✅ Correctly attach to the specific line
+                    body: `**Issue:** ${suggestion.issue}\n\n**Suggested Fix:**\n\`\`\`${getLanguageFromFilename(filename).toLowerCase()}\n${suggestion.suggestedFix}\n\`\`\``
+                });
+            } catch (error) {
+                console.error(`⚠️ Failed to comment on ${filename} (Line ${suggestion.line}): ${error.message}`);
+            }
         }
     }
-
-    await octokit.rest.issues.createComment({
-        owner: repo.owner,
-        repo: repo.repo,
-        issue_number: pr.number,
-        body: commentBody
-    });
 }
 
 function getLanguageFromFilename(filename) {
