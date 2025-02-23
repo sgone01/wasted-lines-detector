@@ -43749,35 +43749,24 @@ async function run() {
             pull_number: pr.number,
         });
 
-        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, aiApiKey, context.repo.owner, context.repo.repo);
-
-        if (comments.length > 0) {
-            await octokit.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: formatSuggestionsForPR(comments)
-            });
-        }
+        await suggestInlineChanges(files.data, octokit, context.repo, pr, aiApiKey);
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
 
-async function analyzeFiles(files, octokit, repo, branch, aiApiKey, owner, repoName) {
-    let comments = [];
-
+async function suggestInlineChanges(files, octokit, repo, pr, aiApiKey) {
     for (const file of files) {
         if (!isSupportedFile(file.filename)) continue;
 
-        const content = await fetchFileContent(octokit, repo.owner, repo.repo, file.filename, branch);
+        const content = await fetchFileContent(octokit, repo.owner, repo.repo, file.filename, pr.head.ref);
         if (!content) continue;
 
         const suggestion = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
-        if (suggestion) comments.push(formatComment(file.filename, suggestion, owner, repoName, branch));
+        if (suggestion) {
+            await postInlineComment(octokit, repo.owner, repo.repo, pr.number, file, suggestion);
+        }
     }
-
-    return comments;
 }
 
 async function fetchFileContent(octokit, owner, repo, path, ref) {
@@ -43801,6 +43790,20 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
     }
 }
 
+async function postInlineComment(octokit, owner, repo, prNumber, file, suggestion) {
+    const firstLine = 1; // Posting at the start of the file (can be adjusted dynamically)
+
+    await octokit.rest.pulls.createReviewComment({
+        owner,
+        repo,
+        pull_number: prNumber,
+        body: `### 🛠 Suggested Improvement\n\`\`\`${getLanguageFromFilename(file.filename).toLowerCase()}\n${suggestion}\n\`\`\``,
+        commit_id: file.sha,
+        path: file.filename,
+        line: firstLine,
+    });
+}
+
 function getLanguageFromFilename(filename) {
     if (filename.endsWith('.js')) return 'JavaScript';
     if (filename.endsWith('.py')) return 'Python';
@@ -43808,15 +43811,6 @@ function getLanguageFromFilename(filename) {
     if (filename.endsWith('.rb')) return 'Ruby';
     if (filename.endsWith('.groovy')) return 'Groovy';
     return 'Unknown';
-}
-
-function formatComment(filename, code, owner, repo, branch) {
-    const fileUrl = `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`;
-    return `#### 📂 [\`${filename}\`](${fileUrl})\n\`\`\`${getLanguageFromFilename(filename).toLowerCase()}\n${code}\n\`\`\``;
-}
-
-function formatSuggestionsForPR(comments) {
-    return `### 🚀 Wasted Lines Detector Report\n\n${comments.join('\n\n')}`;
 }
 
 function isSupportedFile(filename) {
