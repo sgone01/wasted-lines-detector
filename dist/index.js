@@ -52973,6 +52973,7 @@ async function run() {
         const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
 
         if (comments.length > 0) {
+            console.log("Review Comments:", JSON.stringify(comments, null, 2));
             await octokit.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
