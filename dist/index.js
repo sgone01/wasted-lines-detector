@@ -43743,19 +43743,21 @@ async function run() {
 
         if (!pr) return;
 
+        const latestCommitSHA = pr.head.sha; // ✅ Correct way to get latest commit SHA
+
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
             pull_number: pr.number,
         });
 
-        await suggestInlineChanges(files.data, octokit, context.repo, pr, aiApiKey);
+        await suggestInlineChanges(files.data, octokit, context.repo, pr, aiApiKey, latestCommitSHA);
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
 
-async function suggestInlineChanges(files, octokit, repo, pr, aiApiKey) {
+async function suggestInlineChanges(files, octokit, repo, pr, aiApiKey, commitSHA) {
     for (const file of files) {
         if (!isSupportedFile(file.filename)) continue;
 
@@ -43764,7 +43766,7 @@ async function suggestInlineChanges(files, octokit, repo, pr, aiApiKey) {
 
         const suggestion = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
         if (suggestion) {
-            await postInlineComment(octokit, repo.owner, repo.repo, pr.number, file, suggestion);
+            await postInlineComment(octokit, repo.owner, repo.repo, pr.number, file, suggestion, commitSHA);
         }
     }
 }
@@ -43790,15 +43792,15 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
     }
 }
 
-async function postInlineComment(octokit, owner, repo, prNumber, file, suggestion) {
-    const firstLine = 1; // Posting at the start of the file (can be adjusted dynamically)
+async function postInlineComment(octokit, owner, repo, prNumber, file, suggestion, commitSHA) {
+    const firstLine = 1; // ✅ Posting at the start of the file (can be adjusted dynamically)
 
     await octokit.rest.pulls.createReviewComment({
         owner,
         repo,
         pull_number: prNumber,
         body: `### 🛠 Suggested Improvement\n\`\`\`${getLanguageFromFilename(file.filename).toLowerCase()}\n${suggestion}\n\`\`\``,
-        commit_id: file.sha,
+        commit_id: commitSHA, // ✅ Using latest commit SHA
         path: file.filename,
         line: firstLine,
     });
