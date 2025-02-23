@@ -52,19 +52,28 @@ async function run() {
                 repo: context.repo.repo,
                 pull_number: pr.number,
                 event: 'COMMENT',
-                comments: comments.map(comment => ({
-                    path: comment.filename,  // File path in PR
-                    side: "RIGHT",  // Show comments on the right side of PR
-                    start_line: null,  // Commenting on the whole file, no range
-                    line: comment.line,  // Add the correct line number (if available)
-                    body: comment.suggestion  // Suggestion from AI
-                })),
+                comments: comments.map(comment => {
+                    const reviewComment = {
+                        path: comment.filename,  // File path in PR
+                        side: "RIGHT",  // Comment on the right side
+                        line: comment.line,  // AI-suggested line number or fallback
+                        body: comment.suggestion  // AI-generated suggestion
+                    };
+
+                    // Ensure `start_line` is only included when needed (for multi-line comments)
+                    if (comment.start_line !== undefined) {
+                        reviewComment.start_line = comment.start_line;
+                    }
+
+                    return reviewComment;
+                }),
             });
         }
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
+
 
 
 async function analyzeFiles(files, octokit, repo, branch) {
