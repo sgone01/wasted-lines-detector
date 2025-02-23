@@ -94,14 +94,17 @@ async function getSuggestionsFromGeminiAI(content, filename) {
     const requestBody = {
         contents: [{
             parts: [{
-                text: `Analyze this ${language} code. Provide:
-1️⃣ Optimized version.
-2️⃣ Time complexity.
-3️⃣ Execution time.
+                text: `Analyze the following ${language} code and provide a clear, structured response with:
+                
+1️⃣ A fully optimized version of the code.  
+2️⃣ A brief explanation of the improvement.  
+3️⃣ The time complexity and execution time impact.
 
-Limit response to 10 words only.
+⚠️ **Important:**  
+- Provide an **optimized code block** with proper formatting.  
+- Ensure the response **does not exceed 20 words** for conciseness.  
 
-Code:
+Here is the code:  
 \`\`\`${language.toLowerCase()}
 ${content}
 \`\`\`
@@ -112,15 +115,13 @@ ${content}
 
     try {
         const response = await axios.post(apiUrl, requestBody, { headers: { 'Content-Type': 'application/json' } });
-
-        console.log("🔍 AI Response:", JSON.stringify(response.data, null, 2)); // Debug Log
-
-        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
+        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim() || null;
     } catch (error) {
-        console.error("❌ AI Request Failed:", error);
+        console.error("❌ AI API request failed:", error);
         return null;
     }
 }
+
 
 async function postReviewComments(octokit, comments, repo, prNumber) {
     if (!comments || comments.length === 0) {
