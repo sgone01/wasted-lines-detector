@@ -52961,6 +52961,7 @@ async function run() {
 
         const { context } = github;
         const pr = context.payload.pull_request;
+
         if (!pr) return;
 
         const files = await octokit.rest.pulls.listFiles({
@@ -52972,12 +52973,25 @@ async function run() {
         const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
 
         if (comments.length > 0) {
-            await postReviewComments(octokit, comments, context.repo, pr.number);
+            await octokit.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                event: 'COMMENT',
+                comments: comments.map(comment => ({
+                    path: comment.filename,  // File path in PR
+                    side: "RIGHT",  // Show comments on the right side of PR
+                    start_line: null,  // Commenting on the whole file, no range
+                    line: comment.line,  // Add the correct line number (if available)
+                    body: comment.suggestion  // Suggestion from AI
+                })),
+            });
         }
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
+
 
 async function analyzeFiles(files, octokit, repo, branch) {
     let comments = [];
