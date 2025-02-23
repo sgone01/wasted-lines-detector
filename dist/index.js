@@ -52978,27 +52978,19 @@ async function run() {
                 repo: context.repo.repo,
                 pull_number: pr.number,
                 event: 'COMMENT',
-                comments: comments.map(comment => {
-                    const reviewComment = {
-                        path: comment.filename,  // File path in PR
-                        side: "RIGHT",  // Comment on the right side
-                        line: comment.line,  // AI-suggested line number or fallback
-                        body: comment.suggestion  // AI-generated suggestion
-                    };
-
-                    // Ensure `start_line` is only included when needed (for multi-line comments)
-                    if (comment.start_line !== undefined) {
-                        reviewComment.start_line = comment.start_line;
-                    }
-
-                    return reviewComment;
-                }),
+                comments: comments.map(comment => ({
+                    path: comment.filename,  // The file in PR
+                    position: comment.line,  // GitHub requires relative PR line number
+                    body: comment.suggestion // AI-generated suggestion
+                })),
             });
         }
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
+
+
 
 
 
