@@ -39,18 +39,13 @@ async function run() {
         const pr = context.payload.pull_request;
         if (!pr) return;
 
-        console.log("PR Detected:", pr.number);
-
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
             pull_number: pr.number,
         });
 
-        console.log("Fetched PR Files:", files.data.map(f => f.filename));
-
         const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref);
-        console.log("AI Suggestions:", comments);
 
         if (comments.length > 0) {
             await postReviewComments(octokit, comments, context.repo, pr.number);
@@ -71,11 +66,14 @@ async function analyzeFiles(files, octokit, repo, branch) {
 
         const suggestion = await getSuggestionsFromGeminiAI(content, file.filename);
         if (suggestion) {
-            comments.push({
-                file: file.filename,
-                line: extractLineNumber(file), // Correct line number
-                body: `#### 📂 [${file.filename}](https://github.com/${repo.owner}/${repo.repo}/blob/${branch}/${file.filename})\n\n\`\`\`\n${suggestion}\n\`\`\``
-            });
+            const lineNumber = extractLineNumber(file);
+            if (lineNumber) {
+                comments.push({
+                    path: file.filename,
+                    position: lineNumber,
+                    body: `### 💡 Suggested Improvement\n\`\`\`\n${suggestion}\n\`\`\``
+                });
+            }
         }
     }
 
@@ -112,21 +110,19 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
         repo: repo.repo,
         pull_number: prNumber,
         event: "COMMENT",
-        body: `### 🚀 Wasted Lines Detector Report\n\n${comments.map(c => c.body).join("\n\n")}`,
-        comments: comments.map(c => ({
-            path: c.file,
-            position: c.line,
-            body: c.body
-        }))
+        comments: comments
     });
-
-    console.log("✅ Review comments posted!");
 }
 
 function extractLineNumber(file) {
-    if (!file.patch) return 1;
-    const match = file.patch.match(/^@@ -\d+,\d+ \+(\d+),/);
-    return match ? parseInt(match[1], 10) : 1;
+    if (!file.patch) return null;
+    
+    const linesWithChanges = file.patch
+        .split('\n')
+        .map((line, index) => (line.startsWith('+') && !line.startsWith('+++')) ? index + 1 : null)
+        .filter(line => line !== null);
+    
+    return linesWithChanges.length > 0 ? linesWithChanges[0] : null;
 }
 
 function getLanguageFromFilename(filename) {
