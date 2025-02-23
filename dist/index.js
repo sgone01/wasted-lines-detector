@@ -43756,7 +43756,7 @@ async function run() {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
-                body: comments.join('\n\n')
+                body: formatSuggestionsForPR(comments)
             });
         }
     } catch (error) {
@@ -43774,7 +43774,7 @@ async function analyzeFiles(files, octokit, repo, branch, aiApiKey) {
         if (!content) continue;
 
         const suggestion = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
-        if (suggestion) comments.push(formatComment(suggestion));
+        if (suggestion) comments.push(formatComment(file.filename, suggestion));
     }
 
     return comments;
@@ -43810,8 +43810,12 @@ function getLanguageFromFilename(filename) {
     return 'Unknown';
 }
 
-function formatComment(code) {
-    return `\`\`\`\n${code}\n\`\`\``;
+function formatComment(filename, code) {
+    return `#### 📂 \`${filename}\`\n\`\`\`${getLanguageFromFilename(filename).toLowerCase()}\n${code}\n\`\`\``;
+}
+
+function formatSuggestionsForPR(comments) {
+    return `### 🚀 Wasted Lines Detector Report\n\n${comments.join('\n\n')}`;
 }
 
 function isSupportedFile(filename) {
