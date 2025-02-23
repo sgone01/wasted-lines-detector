@@ -30,6 +30,8 @@ async function getOctokitInstance() {
 
 function getDiffPosition(patch, lineNumber) {
     if (!patch) return null;
+    console.log(`🔍 Calculating diff position: Line ${lineNumber}, Patch:\n${patch}`);
+
     const lines = patch.split('\n');
     let diffPosition = 0;
     let currentLine = 0;
@@ -45,13 +47,17 @@ function getDiffPosition(patch, lineNumber) {
             // Only count added/unchanged lines
             diffPosition++;
             if (currentLine === lineNumber) {
+                console.log(`✅ Found diff position: ${diffPosition} for line ${lineNumber}`);
                 return diffPosition;
             }
             currentLine++;
         }
     }
+
+    console.error(`❌ Could not determine diff position for line ${lineNumber}`);
     return null;
 }
+
 async function run() {
     try {
         const octokit = await getOctokitInstance();
@@ -98,16 +104,21 @@ async function analyzeFiles(files, octokit, repo, branch) {
         if (!content) continue;
 
         const suggestion = await getSuggestionsFromGeminiAI(content, file.filename);
-        if (suggestion) {
-            comments.push({
-                path: file.filename,
-                body: formatGitHubReviewComment(file.filename, content, suggestion)
-            });
-        }
+        if (!suggestion) continue;
+
+        // Get the first non-empty line from the original content
+        const firstLineNumber = content.split("\n").findIndex(line => line.trim() !== "") + 1;
+
+        comments.push({
+            path: file.filename,
+            line: firstLineNumber, // Fix: Now we have a line number
+            body: formatGitHubReviewComment(file.filename, content, suggestion)
+        });
     }
 
     return comments;
 }
+
 
 async function fetchFileContent(octokit, owner, repo, path, ref) {
     const response = await octokit.rest.repos.getContent({ owner, repo, path, ref });
@@ -160,7 +171,7 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
             pull_number: prNumber
         });
 
-        console.log("PR files:", pullRequestDiff.map(f => f.filename)); // Debugging
+        console.log("🔍 PR files:", pullRequestDiff.map(f => f.filename));
 
         const formattedComments = comments
             .map(comment => {
@@ -173,6 +184,12 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
                 if (!file) {
                     console.error(`❌ File ${comment.path} not found in PR.`);
                     return null;
+                }
+
+                // Ensure line number is set
+                if (!comment.line) {
+                    console.warn(`⚠️ No line number for ${comment.path}, setting default to 1`);
+                    comment.line = 1; // Fallback to the first line
                 }
 
                 const position = getDiffPosition(file.patch, comment.line);
@@ -194,7 +211,7 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
             .filter(comment => comment !== null);
 
         if (formattedComments.length === 0) {
-            console.log("No valid review comments to post.");
+            console.log("⚠️ No valid review comments to post.");
             return;
         }
 
@@ -211,6 +228,7 @@ async function postReviewComments(octokit, comments, repo, prNumber) {
         console.error("❌ Error posting review comments:", error);
     }
 }
+
 
 
 function formatGitHubReviewComment(filename, originalContent, suggestion) {
