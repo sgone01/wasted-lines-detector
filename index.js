@@ -18,7 +18,7 @@ async function run() {
 
         if (!pr) return;
 
-        const latestCommitSHA = pr.head.sha; // ✅ Correct way to get latest commit SHA
+        const latestCommitSHA = pr.head.sha; // ✅ Correctly fetch latest commit SHA
 
         const files = await octokit.rest.pulls.listFiles({
             owner: context.repo.owner,
@@ -26,24 +26,32 @@ async function run() {
             pull_number: pr.number,
         });
 
-        await suggestInlineChanges(files.data, octokit, context.repo, pr, aiApiKey, latestCommitSHA);
+        const fileSuggestions = await analyzeFiles(files.data, octokit, context.repo, pr, aiApiKey);
+
+        if (Object.keys(fileSuggestions).length > 0) {
+            await postPRComment(octokit, context.repo, pr, fileSuggestions);
+        }
     } catch (error) {
         core.setFailed(`Error: ${error.message}`);
     }
 }
 
-async function suggestInlineChanges(files, octokit, repo, pr, aiApiKey, commitSHA) {
+async function analyzeFiles(files, octokit, repo, pr, aiApiKey) {
+    let fileSuggestions = {};
+
     for (const file of files) {
         if (!isSupportedFile(file.filename)) continue;
 
         const content = await fetchFileContent(octokit, repo.owner, repo.repo, file.filename, pr.head.ref);
         if (!content) continue;
 
-        const suggestion = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
-        if (suggestion) {
-            await postInlineComment(octokit, repo.owner, repo.repo, pr.number, file, suggestion, commitSHA);
+        const suggestions = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
+        if (suggestions.length > 0) {
+            fileSuggestions[file.filename] = suggestions;
         }
     }
+
+    return fileSuggestions;
 }
 
 async function fetchFileContent(octokit, owner, repo, path, ref) {
@@ -56,28 +64,38 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const requestBody = {
-        contents: [{ parts: [{ text: `Improve this ${language} code. Return only the corrected code inside a code block, no explanations:\n\n${content}` }] }]
+        contents: [{ parts: [{ text: `Identify problems in this ${language} code and suggest improvements. Provide exact line numbers where changes should be made. Return suggestions in JSON format:\n\n${content}` }] }]
     };
 
     try {
         const response = await axios.post(apiUrl, requestBody, { headers: { 'Content-Type': 'application/json' } });
-        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim() || null;
+        return JSON.parse(response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim()) || [];
     } catch {
-        return null;
+        return [];
     }
 }
 
-async function postInlineComment(octokit, owner, repo, prNumber, file, suggestion, commitSHA) {
-    const firstLine = 1; // ✅ Posting at the start of the file (can be adjusted dynamically)
+async function postPRComment(octokit, repo, pr, fileSuggestions) {
+    let commentBody = `### 🚀 Wasted Lines Detector Report\n\n`;
 
-    await octokit.rest.pulls.createReviewComment({
-        owner,
-        repo,
-        pull_number: prNumber,
-        body: `### 🛠 Suggested Improvement\n\`\`\`${getLanguageFromFilename(file.filename).toLowerCase()}\n${suggestion}\n\`\`\``,
-        commit_id: commitSHA, // ✅ Using latest commit SHA
-        path: file.filename,
-        line: firstLine,
+    for (const [filename, suggestions] of Object.entries(fileSuggestions)) {
+        const fileUrl = `https://github.com/${repo.owner}/${repo.repo}/blob/${pr.head.ref}/${filename}`;
+
+        commentBody += `#### 📂 [\`${filename}\`](${fileUrl})\n\n`;
+
+        for (const suggestion of suggestions) {
+            commentBody += `- **Line ${suggestion.line}:** ${suggestion.issue}\n`;
+            commentBody += "```" + getLanguageFromFilename(filename).toLowerCase() + "\n";
+            commentBody += suggestion.suggestedFix + "\n";
+            commentBody += "```\n\n";
+        }
+    }
+
+    await octokit.rest.issues.createComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        issue_number: pr.number,
+        body: commentBody
     });
 }
 
