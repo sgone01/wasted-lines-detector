@@ -6,13 +6,12 @@ branding:
   color: "blue"
 
 inputs:
-  github_token:
-    description: "GitHub Token for authentication"
+  github_app_id:
+    description: "GitHub App ID"
     required: true
-  use_github_copilot:
-    description: "Use GitHub Copilot to suggest improvements"
-    required: false
-    default: false
+  github_private_key:
+    description: "GitHub App Private Key"
+    required: true
   ai_api_key:
     description: "API Key for AI-based code analysis"
     required: true
