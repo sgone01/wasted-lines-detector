@@ -38,7 +38,7 @@ async function run() {
         const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, aiApiKey);
 
         if (comments.length > 0) {
-            const commentBody = generateCommentBody(comments, context.repo, pr.head.ref);
+            const commentBody = generateCommentBody(comments);
 
             await octokit.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -107,7 +107,7 @@ async function getSuggestionsFromGeminiAI(content, apiKey, filename) {
             {
                 parts: [
                     {
-                        text: `Review the following ${language} code and suggest improvements in 200-250 words:\n\n${content}`
+                        text: `Analyze the following ${language} code and provide only the improved version in 200-250 words, without explanation or extra text:\n\n${content}`
                     }
                 ]
             }
@@ -142,13 +142,9 @@ function getLanguageFromFilename(filename) {
     return 'Unknown';
 }
 
-function generateCommentBody(comments, repo, ref) {
-    const repoUrl = `https://github.com/${repo.owner}/${repo.repo}/blob/${ref}`;
-
+function generateCommentBody(comments) {
     let commentBody = `### 🚀 Code Review Report \n\n`;
     comments.forEach(comment => {
-        commentBody += `📄 **[${comment.path}](${repoUrl}/${comment.path})**\n`;
-        commentBody += `\n**Suggestion:**\n`;
         commentBody += `\`\`\`\n${comment.body}\n\`\`\`\n\n`;
     });
 
