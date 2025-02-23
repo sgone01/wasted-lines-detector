@@ -43749,7 +43749,7 @@ async function run() {
             pull_number: pr.number,
         });
 
-        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, aiApiKey);
+        const comments = await analyzeFiles(files.data, octokit, context.repo, pr.head.ref, aiApiKey, context.repo.owner, context.repo.repo);
 
         if (comments.length > 0) {
             await octokit.rest.issues.createComment({
@@ -43764,7 +43764,7 @@ async function run() {
     }
 }
 
-async function analyzeFiles(files, octokit, repo, branch, aiApiKey) {
+async function analyzeFiles(files, octokit, repo, branch, aiApiKey, owner, repoName) {
     let comments = [];
 
     for (const file of files) {
@@ -43774,7 +43774,7 @@ async function analyzeFiles(files, octokit, repo, branch, aiApiKey) {
         if (!content) continue;
 
         const suggestion = await getSuggestionsFromGeminiAI(content, aiApiKey, file.filename);
-        if (suggestion) comments.push(formatComment(file.filename, suggestion));
+        if (suggestion) comments.push(formatComment(file.filename, suggestion, owner, repoName, branch));
     }
 
     return comments;
@@ -43810,8 +43810,9 @@ function getLanguageFromFilename(filename) {
     return 'Unknown';
 }
 
-function formatComment(filename, code) {
-    return `#### 📂 \`${filename}\`\n\`\`\`${getLanguageFromFilename(filename).toLowerCase()}\n${code}\n\`\`\``;
+function formatComment(filename, code, owner, repo, branch) {
+    const fileUrl = `https://github.com/${owner}/${repo}/blob/${branch}/${filename}`;
+    return `#### 📂 [\`${filename}\`](${fileUrl})\n\`\`\`${getLanguageFromFilename(filename).toLowerCase()}\n${code}\n\`\`\``;
 }
 
 function formatSuggestionsForPR(comments) {
