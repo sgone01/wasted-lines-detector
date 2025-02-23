@@ -115,7 +115,7 @@ ${content}
 
         console.log("🔍 AI Response:", JSON.stringify(response.data, null, 2)); // Debug Log
 
-        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim() || null;
+        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text.trim();
     } catch (error) {
         console.error("❌ AI Request Failed:", error);
         return null;
